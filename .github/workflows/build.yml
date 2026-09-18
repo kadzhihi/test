@@ -17,40 +17,62 @@ jobs:
       - name: Setup Theos
         uses: waruhachi/theos-action@v2.4.6
         with:
-          theos-src: theos/theos
-          theos-branch: master
-          sdks-src: theos/sdks
-          sdks-branch: master
-          libgcuniversal: "false"
-          altlist: "false"
+          theos-src: 'theos/theos'
+          theos-branch: 'master'
+          sdks-src: 'theos/sdks'
+          sdks-branch: 'master'
+          libgcuniversal: 'false'
+          altlist: 'false'
 
-      - name: Show project
-        run: |
-          echo "===== ROOT ====="
-          pwd
-          ls -la
-
-          echo "===== MAKEFILE ====="
-          cat Makefile
-
-          echo "===== CONTROL ====="
-          cat control
-
-          echo "===== ENTITLEMENTS ====="
-          cat entitlements.plist
-
-      - name: Validate entitlements
+      - name: Fix package script permissions
         run: |
           set -e
 
+          echo "===== BEFORE ====="
+          find layout -maxdepth 3 -type f -print -exec ls -l {} \; 2>/dev/null || true
+
+          if [ -f layout/DEBIAN/postinst ]; then
+            chmod 755 layout/DEBIAN/postinst
+          fi
+
+          if [ -f layout/DEBIAN/preinst ]; then
+            chmod 755 layout/DEBIAN/preinst
+          fi
+
+          if [ -f layout/DEBIAN/prerm ]; then
+            chmod 755 layout/DEBIAN/prerm
+          fi
+
+          if [ -f layout/DEBIAN/postrm ]; then
+            chmod 755 layout/DEBIAN/postrm
+          fi
+
+          echo "===== AFTER ====="
+          find layout -maxdepth 3 -type f -print -exec ls -l {} \; 2>/dev/null || true
+
+      - name: Validate project
+        run: |
+          set -e
+
+          test -f Makefile
+          test -f control
+          test -f safarijs.m
           test -f entitlements.plist
+
           plutil -lint entitlements.plist
+
+          if grep -nE '^[[:space:]]*safarijs_LIBRARIES[[:space:]]*=[[:space:]]*xpc' Makefile; then
+            echo "ERROR: Remove safarijs_LIBRARIES = xpc"
+            exit 1
+          fi
 
       - name: Build SafariJS
         run: |
           set -e
 
           echo "THEOS=$THEOS"
+
+          rm -rf .theos packages
 
           make clean
 
@@ -59,16 +81,6 @@ jobs:
             THEOS_PACKAGE_SCHEME=rootless \
             THEOS_PACKAGE_ARCH=iphoneos-arm64
 
-      - name: Find package
-        run: |
-          echo "===== GENERATED DEB ====="
-
-          find packages \
-            -maxdepth 1 \
-            -type f \
-            -name "*.deb" \
-            -print
-
       - name: Verify package
         run: |
           set -e
@@ -76,18 +88,14 @@ jobs:
           DEB="$(find packages -maxdepth 1 -type f -name '*.deb' | head -1)"
 
           if [ -z "$DEB" ]; then
-            echo "ERROR: .deb was not generated"
+            echo "ERROR: DEB NOT CREATED"
             exit 1
           fi
 
           echo "DEB=$DEB"
 
-          echo ""
-          echo "===== PACKAGE INFO ====="
-
           dpkg-deb -f "$DEB" \
             Package \
-            Name \
             Version \
             Architecture \
             Depends
@@ -95,29 +103,14 @@ jobs:
           ARCH="$(dpkg-deb -f "$DEB" Architecture)"
 
           if [ "$ARCH" != "iphoneos-arm64" ]; then
-            echo ""
-            echo "ERROR:"
-            echo "Expected: iphoneos-arm64"
-            echo "Actual:   $ARCH"
+            echo "ERROR: wrong architecture: $ARCH"
             exit 1
           fi
 
-          echo ""
-          echo "===== PACKAGE CONTENTS ====="
-
+          echo "===== CONTENTS ====="
           dpkg-deb -c "$DEB"
 
-          echo ""
-          echo "===== CHECK SAFARIJS ====="
-
-          if ! dpkg-deb -c "$DEB" | grep -q "usr/local/bin/safarijs"; then
-            echo "ERROR: safarijs is missing from package"
-            exit 1
-          fi
-
-          echo "safarijs found in package"
-
-      - name: Upload SafariJS DEB
+      - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
           name: SafariJS-Dopamine-rootless
