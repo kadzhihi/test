@@ -31,21 +31,16 @@ jobs:
           echo "===== BEFORE ====="
           find layout -maxdepth 3 -type f -print -exec ls -l {} \; 2>/dev/null || true
 
-          if [ -f layout/DEBIAN/postinst ]; then
-            chmod 755 layout/DEBIAN/postinst
-          fi
-
-          if [ -f layout/DEBIAN/preinst ]; then
-            chmod 755 layout/DEBIAN/preinst
-          fi
-
-          if [ -f layout/DEBIAN/prerm ]; then
-            chmod 755 layout/DEBIAN/prerm
-          fi
-
-          if [ -f layout/DEBIAN/postrm ]; then
-            chmod 755 layout/DEBIAN/postrm
-          fi
+          for f in \
+            layout/DEBIAN/postinst \
+            layout/DEBIAN/preinst \
+            layout/DEBIAN/prerm \
+            layout/DEBIAN/postrm
+          do
+            if [ -f "$f" ]; then
+              chmod 755 "$f"
+            fi
+          done
 
           echo "===== AFTER ====="
           find layout -maxdepth 3 -type f -print -exec ls -l {} \; 2>/dev/null || true
@@ -73,13 +68,24 @@ jobs:
           echo "THEOS=$THEOS"
 
           rm -rf .theos packages
-
           make clean
 
           make package \
             FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME=rootless \
             THEOS_PACKAGE_ARCH=iphoneos-arm64
+
+      - name: Install dpkg tools if needed
+        run: |
+          set -e
+
+          if ! command -v dpkg-deb >/dev/null 2>&1; then
+            echo "dpkg-deb not found, installing dpkg..."
+            brew install dpkg
+          fi
+
+          command -v dpkg-deb
+          dpkg-deb --version | head -1
 
       - name: Verify package
         run: |
@@ -93,7 +99,9 @@ jobs:
           fi
 
           echo "DEB=$DEB"
+          ls -lh "$DEB"
 
+          echo "===== PACKAGE INFO ====="
           dpkg-deb -f "$DEB" \
             Package \
             Version \
@@ -109,6 +117,11 @@ jobs:
 
           echo "===== CONTENTS ====="
           dpkg-deb -c "$DEB"
+
+          echo "===== SAFARIJS CHECK ====="
+          dpkg-deb -c "$DEB" | grep -E '/usr/local/bin/safarijs$|/var/jb/usr/local/bin/safarijs$'
+
+          echo "VERIFY OK"
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
