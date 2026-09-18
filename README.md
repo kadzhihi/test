@@ -1,4 +1,4 @@
-# SafariJS Helper for IOSControl + Dopamine rootless
+# SafariJS Helper for IOSControl + Dopamine rootless (v0.1.1)
 
 Goal:
 
@@ -84,3 +84,8 @@ If `probe` fails at `xpc-webinspector`, the local Mach service rejected the help
 If `probe` succeeds but `list` finds no Safari page, check Web Inspector is enabled and Safari has a normal webpage open.
 
 If `list` succeeds but `eval` times out, the target protocol handshake needs adjustment for that exact iOS/WebKit build.
+
+
+## v0.1.1 build fix
+
+The iOS SDK marks `xpc_connection_create_mach_service` unavailable at compile time. This version resolves it at runtime with `dlopen`/`dlsym`, and also dynamically resolves the private CoreFoundation XPC bridge symbols.

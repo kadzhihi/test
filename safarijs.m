@@ -1,10 +1,79 @@
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <xpc/xpc.h>
+#include <dlfcn.h>
 
-extern xpc_object_t _CFXPCCreateXPCMessageWithCFObject(CFTypeRef object);
-extern CFTypeRef _CFXPCCreateCFObjectFromXPCMessage(xpc_object_t object);
+typedef xpc_connection_t (*XPCConnectionCreateMachServiceFn)(
+    const char *,
+    dispatch_queue_t,
+    uint64_t
+);
 
+typedef xpc_object_t (*CFXPCCreateXPCMessageWithCFObjectFn)(CFTypeRef);
+typedef CFTypeRef (*CFXPCCreateCFObjectFromXPCMessageFn)(xpc_object_t);
+
+static XPCConnectionCreateMachServiceFn LoadXPCConnectionCreateMachService(void)
+{
+    static XPCConnectionCreateMachServiceFn fn = NULL;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen("/usr/lib/system/libxpc.dylib", RTLD_LAZY);
+
+        if (!handle) {
+            handle = RTLD_DEFAULT;
+        }
+
+        fn = (XPCConnectionCreateMachServiceFn)
+            dlsym(handle, "xpc_connection_create_mach_service");
+    });
+
+    return fn;
+}
+
+static CFXPCCreateXPCMessageWithCFObjectFn LoadCFToXPC(void)
+{
+    static CFXPCCreateXPCMessageWithCFObjectFn fn = NULL;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen(
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+            RTLD_LAZY
+        );
+
+        if (!handle) {
+            handle = RTLD_DEFAULT;
+        }
+
+        fn = (CFXPCCreateXPCMessageWithCFObjectFn)
+            dlsym(handle, "_CFXPCCreateXPCMessageWithCFObject");
+    });
+
+    return fn;
+}
+
+static CFXPCCreateCFObjectFromXPCMessageFn LoadXPCToCF(void)
+{
+    static CFXPCCreateCFObjectFromXPCMessageFn fn = NULL;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(&onceToken, ^{
+        void *handle = dlopen(
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+            RTLD_LAZY
+        );
+
+        if (!handle) {
+            handle = RTLD_DEFAULT;
+        }
+
+        fn = (CFXPCCreateCFObjectFromXPCMessageFn)
+            dlsym(handle, "_CFXPCCreateCFObjectFromXPCMessage");
+    });
+
+    return fn;
+}
 static const NSTimeInterval kShortTimeout = 2.5;
 static const NSTimeInterval kEvalTimeout = 8.0;
 
@@ -48,18 +117,28 @@ static id DecodeXPCObject(xpc_object_t event)
     }
 
     // Form A: the event itself is a CoreFoundation object bridged through XPC.
-    CFTypeRef cf = _CFXPCCreateCFObjectFromXPCMessage(event);
-    if (cf) {
-        return CFBridgingRelease(cf);
+    CFXPCCreateCFObjectFromXPCMessageFn decodeFn = LoadXPCToCF();
+
+    if (decodeFn) {
+        CFTypeRef cf = decodeFn(event);
+
+        if (cf) {
+            return CFBridgingRelease(cf);
+        }
     }
 
     // Form B: WebKit-style wrapper containing a CF/XPC payload under "msgData".
     if (type == XPC_TYPE_DICTIONARY) {
         xpc_object_t inner = xpc_dictionary_get_value(event, "msgData");
         if (inner) {
-            CFTypeRef innerCF = _CFXPCCreateCFObjectFromXPCMessage(inner);
-            if (innerCF) {
-                return CFBridgingRelease(innerCF);
+            CFXPCCreateCFObjectFromXPCMessageFn decodeFn2 = LoadXPCToCF();
+
+            if (decodeFn2) {
+                CFTypeRef innerCF = decodeFn2(inner);
+
+                if (innerCF) {
+                    return CFBridgingRelease(innerCF);
+                }
             }
         }
     }
@@ -107,8 +186,15 @@ static id DecodeXPCObject(xpc_object_t event)
     self.serviceName = service;
     self.wrappedTransport = wrapped;
 
+    XPCConnectionCreateMachServiceFn createMach =
+        LoadXPCConnectionCreateMachService();
+
+    if (!createMach) {
+        return NO;
+    }
+
     self.connection =
-        xpc_connection_create_mach_service(
+        createMach(
             service.UTF8String,
             self.queue,
             0
@@ -162,8 +248,14 @@ static id DecodeXPCObject(xpc_object_t event)
         @"__argument": args
     };
 
+    CFXPCCreateXPCMessageWithCFObjectFn encodeFn = LoadCFToXPC();
+
+    if (!encodeFn) {
+        return NO;
+    }
+
     xpc_object_t encoded =
-        _CFXPCCreateXPCMessageWithCFObject(
+        encodeFn(
             (__bridge CFTypeRef)rpc
         );
 
