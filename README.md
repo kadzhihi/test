@@ -1,4 +1,4 @@
-# SafariJS Helper for IOSControl + Dopamine rootless (v0.1.2)
+# SafariJS Helper for IOSControl + Dopamine rootless (v0.1.3)
 
 Goal:
 
@@ -99,3 +99,16 @@ The iOS SDK used by Theos does not provide a separate linkable `libxpc` stub, so
 `ld: library 'xpc' not found`
 
 The required normal XPC APIs are provided through the platform runtime, while the unavailable/private entry points continue to be resolved dynamically with `dlopen`/`dlsym`.
+
+
+## v0.1.3 packaging hardening
+
+This revision removes `layout/DEBIAN/postinst` entirely.
+
+The script was unnecessary: Theos installs the tool as an executable already.
+When files were uploaded through GitHub's web UI, `postinst` became mode `0644`,
+and `dpkg-deb` correctly rejected it because maintainer scripts must be executable.
+
+The GitHub Actions workflow now also deletes stale `postinst`, `preinst`, `prerm`,
+and `postrm` files before building. This means even if an old `layout/DEBIAN/postinst`
+is still present in the repository, it cannot break the package build.
