@@ -1,0 +1,126 @@
+name: Build SafariJS Dopamine Rootless
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: waruhachi/theos-action@v2.4.6
+        with:
+          theos-src: theos/theos
+          theos-branch: master
+          sdks-src: theos/sdks
+          sdks-branch: master
+          libgcuniversal: "false"
+          altlist: "false"
+
+      - name: Show project
+        run: |
+          echo "===== ROOT ====="
+          pwd
+          ls -la
+
+          echo "===== MAKEFILE ====="
+          cat Makefile
+
+          echo "===== CONTROL ====="
+          cat control
+
+          echo "===== ENTITLEMENTS ====="
+          cat entitlements.plist
+
+      - name: Validate entitlements
+        run: |
+          set -e
+
+          test -f entitlements.plist
+          plutil -lint entitlements.plist
+
+      - name: Build SafariJS
+        run: |
+          set -e
+
+          echo "THEOS=$THEOS"
+
+          make clean
+
+          make package \
+            FINALPACKAGE=1 \
+            THEOS_PACKAGE_SCHEME=rootless \
+            THEOS_PACKAGE_ARCH=iphoneos-arm64
+
+      - name: Find package
+        run: |
+          echo "===== GENERATED DEB ====="
+
+          find packages \
+            -maxdepth 1 \
+            -type f \
+            -name "*.deb" \
+            -print
+
+      - name: Verify package
+        run: |
+          set -e
+
+          DEB="$(find packages -maxdepth 1 -type f -name '*.deb' | head -1)"
+
+          if [ -z "$DEB" ]; then
+            echo "ERROR: .deb was not generated"
+            exit 1
+          fi
+
+          echo "DEB=$DEB"
+
+          echo ""
+          echo "===== PACKAGE INFO ====="
+
+          dpkg-deb -f "$DEB" \
+            Package \
+            Name \
+            Version \
+            Architecture \
+            Depends
+
+          ARCH="$(dpkg-deb -f "$DEB" Architecture)"
+
+          if [ "$ARCH" != "iphoneos-arm64" ]; then
+            echo ""
+            echo "ERROR:"
+            echo "Expected: iphoneos-arm64"
+            echo "Actual:   $ARCH"
+            exit 1
+          fi
+
+          echo ""
+          echo "===== PACKAGE CONTENTS ====="
+
+          dpkg-deb -c "$DEB"
+
+          echo ""
+          echo "===== CHECK SAFARIJS ====="
+
+          if ! dpkg-deb -c "$DEB" | grep -q "usr/local/bin/safarijs"; then
+            echo "ERROR: safarijs is missing from package"
+            exit 1
+          fi
+
+          echo "safarijs found in package"
+
+      - name: Upload SafariJS DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: SafariJS-Dopamine-rootless
+          path: packages/*.deb
+          if-no-files-found: error
+          retention-days: 7
