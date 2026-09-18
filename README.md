@@ -1,4 +1,4 @@
-# SafariJS Helper for IOSControl + Dopamine rootless (v0.1.1)
+# SafariJS Helper for IOSControl + Dopamine rootless (v0.1.2)
 
 Goal:
 
@@ -89,3 +89,13 @@ If `list` succeeds but `eval` times out, the target protocol handshake needs adj
 ## v0.1.1 build fix
 
 The iOS SDK marks `xpc_connection_create_mach_service` unavailable at compile time. This version resolves it at runtime with `dlopen`/`dlsym`, and also dynamically resolves the private CoreFoundation XPC bridge symbols.
+
+## v0.1.2 linker fix
+
+Removed `safarijs_LIBRARIES = xpc`.
+
+The iOS SDK used by Theos does not provide a separate linkable `libxpc` stub, so `-lxpc` caused:
+
+`ld: library 'xpc' not found`
+
+The required normal XPC APIs are provided through the platform runtime, while the unavailable/private entry points continue to be resolved dynamically with `dlopen`/`dlsym`.

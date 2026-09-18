@@ -1,6 +1,6 @@
 Package: com.ioscontrol.safarijs
 Name: SafariJS Helper
-Version: 0.1.1
+Version: 0.1.2
 Architecture: iphoneos-arm64
 Description: On-device Web Inspector helper for evaluating JavaScript in MobileSafari from IOSControl on Dopamine rootless.
 Maintainer: Local Build
